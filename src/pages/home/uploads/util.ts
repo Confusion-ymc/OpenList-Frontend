@@ -68,22 +68,31 @@ export const File2Upload = (file: File): UploadFileProps => {
   }
 }
 
-export const calculateHash = async (file: File) => {
+export const calculateHash = async (
+  file: File,
+  onProgress?: (progress: number) => void,
+) => {
   const md5Digest = await createMD5()
   const sha1Digest = await createSHA1()
   const sha256Digest = await createSHA256()
   const reader = file.stream().getReader()
-  const read = async () => {
+  let count = 0
+  let loaded = 0
+  while (true) {
     const { done, value } = await reader.read()
     if (done) {
-      return
+      break
     }
+    loaded += value.length
     md5Digest.update(value)
     sha1Digest.update(value)
     sha256Digest.update(value)
-    await read()
+    onProgress?.((loaded / file.size) * 100)
+    count++
+    if (count % 10 === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
   }
-  await read()
   const md5 = md5Digest.digest("hex")
   const sha1 = sha1Digest.digest("hex")
   const sha256 = sha256Digest.digest("hex")

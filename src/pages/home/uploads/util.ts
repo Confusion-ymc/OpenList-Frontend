@@ -1,5 +1,4 @@
 import { UploadFileProps } from "./types"
-import { createMD5, createSHA1, createSHA256 } from "hash-wasm"
 
 export const traverseFileTree = async (entry: FileSystemEntry) => {
   let res: File[] = []
@@ -72,29 +71,28 @@ export const calculateHash = async (
   file: File,
   onProgress?: (progress: number) => void,
 ) => {
-  const md5Digest = await createMD5()
-  const sha1Digest = await createSHA1()
-  const sha256Digest = await createSHA256()
-  const reader = file.stream().getReader()
-  let count = 0
-  let loaded = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) {
-      break
-    }
-    loaded += value.length
-    md5Digest.update(value)
-    sha1Digest.update(value)
-    sha256Digest.update(value)
-    onProgress?.((loaded / file.size) * 100)
-    count++
-    if (count % 10 === 0) {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    }
-  }
-  const md5 = md5Digest.digest("hex")
-  const sha1 = sha1Digest.digest("hex")
-  const sha256 = sha256Digest.digest("hex")
-  return { md5, sha1, sha256 }
+  return new Promise<{ md5: string; sha1: string; sha256: string }>(
+    (resolve, reject) => {
+      const worker = new Worker(new URL("./hash-worker.ts", import.meta.url), {
+        type: "module",
+      })
+      worker.postMessage({ file })
+      worker.onmessage = (e) => {
+        const { type, progress, hash, error } = e.data
+        if (type === "progress") {
+          onProgress?.(progress)
+        } else if (type === "result") {
+          worker.terminate()
+          resolve(hash)
+        } else if (type === "error") {
+          worker.terminate()
+          reject(new Error(error))
+        }
+      }
+      worker.onerror = (e) => {
+        worker.terminate()
+        reject(e)
+      }
+    },
+  )
 }
